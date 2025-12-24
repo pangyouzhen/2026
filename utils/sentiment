@@ -1,0 +1,4 @@
+25,30,35,45,50,55 17 * * 1-5 cd /data/project/2025 && git pull
+*/10 14 * * 1 cd /data/project/2025/utils && python weekly_file.py
+25,30,35,40,50,55 17 * * * cd /data/project/2025/utils && python ana_strong.py
+00 19,20 * * 1-5 cd /data/project/2025/utils && python merge_all_xlsx.py
