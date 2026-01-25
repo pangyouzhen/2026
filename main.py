@@ -11,7 +11,7 @@ from loguru import logger
 from retry import retry
 
 from stock.cls.stock_cls_alerts import stock_zh_a_roll_cls
-from stock.cls.stock_cls_zt_analyse import stock_zh_a_zt_analyse_cls
+# from stock.cls.stock_cls_zt_analyse import stock_zh_a_zt_analyse_cls
 from stock.em.stock_zh_a_new_em import stock_zh_a_new_em
 from stock.utils.wraps_utils import func_utils
 
@@ -40,12 +40,13 @@ def get_stock_zh_a_roll_cls(*args, **kwargs):
     return stock_zh_a_roll_cls_df
 
 
-# 今天的cls zt分析数据
-@retry(Exception, tries=3, delay=2)
-def zt_analyse_df(*args, **kwargs):
-    date = kwargs["date"]
-    date = date.replace("-", "")
-    return stock_zh_a_zt_analyse_cls(date, img_path="./data/cls_zt")
+# # 今天的cls zt分析数据
+# @retry(Exception, tries=3, delay=2)
+# def zt_analyse_df(*args, **kwargs):
+#     date = kwargs["date"]
+#     print(date)
+#     # date = date.replace("-", "")
+#     return stock_zh_a_zt_analyse_cls(date, img_path="./data/cls_zt")
 
 
 # zt 数据
@@ -202,7 +203,7 @@ def main(*args, **kwargs):
 FUNCTION_MAP = {
     "zt": get_zt_data,
     "dt": get_dt_data,
-    "zt_analyse": zt_analyse_df,
+    # "zt_analyse": zt_analyse_df,
     "zb": get_zb_data,
     "raw": get_raw_data,
     "all": main,

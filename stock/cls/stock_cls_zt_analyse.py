@@ -1,78 +1,84 @@
+import argparse
 import re
 from datetime import datetime
+from pprint import pprint
 from typing import Optional
 
 import requests
 from bs4 import BeautifulSoup
 from loguru import logger
+from playwright.sync_api import Playwright, expect, sync_playwright
+from retry import retry
 
-from stock.cls.stock_cls_alerts import cls_headers, cls_url
+parser = argparse.ArgumentParser(description="获取市场情绪")
+parser.add_argument("--path",default="./data/cls_zt", help="获取涨停数据")
+# 输入日期格式 2023-08-04
+parser.add_argument("--date", default=str(datetime.today().date()))
+args = parser.parse_args()
+print(args)
+# @retry(Exception, tries=3, delay=2)
+def run(playwright: Playwright,date,img_path) -> None:
+    # date: 2026-01-24
+    dt = datetime.strptime(date, "%Y-%m-%d")
 
+    # 手动去掉前导零
+    month = str(int(dt.strftime("%m")))  # 或直接 dt.month
+    day = str(int(dt.strftime("%d")))    # 或直接 dt.day
 
-def stock_zh_a_zt_analyse_cls(date: Optional[str] = None, img_path: str = "./img"):
-    """
-    财联社涨停分析-并下载涨停分析图片
-    https://www.cls.cn/detail/756269
-    :rtype: None
-    """
+    date_result = f"{month}月{day}日"
+    browser = playwright.chromium.launch(headless=True)
+    context = browser.new_context()
+    page = context.new_page()
+    page.goto("https://www.cls.cn/telegraph")
+    page.get_by_text("加红").click()
+    page.get_by_role("textbox", name="请输入要搜索的信息").click()
+    page.get_by_role("textbox", name="请输入要搜索的信息").fill("%s涨停分析"%date_result)
+    page.get_by_role("textbox", name="请输入要搜索的信息").press("Enter")
 
-    def get_schema_id(input_date) -> Optional[str]:
-        # 财联社 加上年份获取不到内容，因此只用月份和天进行搜索
-        input_date_cn = "%s月%s日" % (input_date.month, input_date.day)
-        schema_payload = payload % (input_date_cn + "涨停分析")
-        print(schema_payload)
-        response = requests.request(
-            "POST", cls_url, headers=cls_headers, data=schema_payload.encode("utf-8")
-        )
-        js = response.json()
-        data = js["data"]["telegram"]["data"]
-        if len(data) > 0:
-            for i in data:
-                schema = i["schema"]
-                img_time_stamp = i["time"]
-                dt = datetime.fromtimestamp(img_time_stamp)
-                if dt.date() == input_date.date():
-                    schema_id = re.search("\d+", schema).group(0)
-                    if schema_id:
-                        return schema_id
-        logger.info("没有获取schema_id")
+        # 获取所有 src
+    with page.expect_popup() as page2_info:
+        page.get_by_role("link", name="【%s涨停分析】财联社%s电，今日全市场共"%(date_result,date_result)).click()
+    page2 = page2_info.value
+    page2.wait_for_timeout(10000)  # 强制等待 3 秒
+    src_list = [img.get_attribute("src") for img in page2.locator("img").all()]
 
-    def save_img(schema_id: str, img_path, input_date) -> None:
-        url = "http://www.cls.cn/detail/%s" % schema_id
-        print(url)
-        response = requests.request("GET", url, headers=cls_headers)
-        page = response.text
-        pagesoup = BeautifulSoup(page, "lxml")
-        links = [
-            link
-            for link in pagesoup.find_all(
-                name="img", attrs={"src": re.compile(r"^https://img")}
-            )
-        ]
-        print(len(links))
-        for ind,link in enumerate(links):
-            src_link = link.get("src")
-            url = src_link.split("?")[0]
-            html = requests.get(url)
-            img_name = str(input_date.date())
-            print(img_name)
-            with open("%s/%s_zt_analyse_%s.png" % (img_path, img_name,ind), "wb") as file:
+    # 打印整个列表
+    print(src_list)
+
+    # 或者检查是否为空后再打印第一个
+    if src_list:
+        print(f"第一张图是: {src_list[0]}")
+    page.wait_for_timeout(10000)
+    ind_ = {2:1,1:0}
+    for ind,v in ind_.items():
+        url = src_list[ind]
+        html = requests.get(url)
+        img_name = str(date)
+        print(img_name)
+        with open("%s/%s_zt_analyse_%s.png" % (img_path, img_name,v), "wb") as file:
                 file.write(html.content)
-            print("获取今日涨停分析成功")
+        print("获取今日涨停分析成功")
+    # imgs = page.locator("img").all()
+    # # .nth(2).get_attribute("src")
+    # for i in imgs:
+    #     print(i.get_attribute("src"))
+    # print(src)
+    # with page.expect_popup() as page1_info:
+    #     page.get_by_role("link", name="【1月23日涨停分析】财联社1月23日电，今日全市场共").click()
+    # page1 = page1_info.value
+    # page1.locator("div:nth-child(2) > .telegraph-image-thumbnail").click()
+    # page1.locator(".telegraph-image-box-mask").click()
+    # page1.locator(".telegraph-image-box-mask").click()
+    # page1.locator(".telegraph-image-box-mask").click()
+    # page1.get_by_role("img").nth(3).click()
+    # page1.locator("div:nth-child(2) > .telegraph-image-thumbnail").click()
+    # page1.locator(".telegraph-image-box-mask").click()
+    # page1.get_by_role("img").nth(3).click()
 
-    payload = (
-        '{"type":"all","keyword":"%s","os":"web","sv":"7.2.2","app":"CailianpressWeb"}'
-    )
+    # ---------------------
+    context.close()
+    browser.close()
 
-    if date:
-        date = datetime.strptime(date, "%Y%m%d")
-    else:
-        date = datetime.today()
-    schema_id = get_schema_id(date)
-    if schema_id:
-        save_img(schema_id, img_path, date)
-        return True
 
-# if __name__ == "__main__":
-#     stock_zh_a_zt_analyse_cls = stock_zh_a_zt_analyse_cls(date="20240704")
-#     print(stock_zh_a_zt_analyse_cls)
+with sync_playwright() as playwright:
+    run(playwright,args.date,args.path)
