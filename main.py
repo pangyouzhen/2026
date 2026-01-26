@@ -189,8 +189,8 @@ def main(*args, **kwargs):
         get_zb_data(date = kwargs["date"])
         time.sleep(20)
 
-        zt_analyse_df(date = kwargs["date"])
-        time.sleep(5)
+        # zt_analyse_df(date = kwargs["date"])
+        # time.sleep(5)
         
         # get_stock_zh_a_roll_cls(date=kwargs["date"])
         # time.sleep(5)
