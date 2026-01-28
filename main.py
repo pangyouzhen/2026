@@ -13,6 +13,7 @@ from retry import retry
 from stock.cls.stock_cls_alerts import stock_zh_a_roll_cls
 # from stock.cls.stock_cls_zt_analyse import stock_zh_a_zt_analyse_cls
 from stock.em.stock_zh_a_new_em import stock_zh_a_new_em
+from stock.sina.stock_zh_a_sina import stock_zh_a_spot
 from stock.utils.wraps_utils import func_utils
 
 print('start------')
@@ -27,7 +28,7 @@ trade_df = pd.read_csv("./stock/tool_trade_date_hist_sina_df.csv")
     csv_path="./data/raw_data", csv_name="raw_data")
 def get_raw_data(*args, **kwargs):
     date = kwargs["date"]
-    stock_zh_a_spot_df = ak.stock_zh_a_spot()
+    stock_zh_a_spot_df = stock_zh_a_spot()
     print(stock_zh_a_spot_df[:5])
     return stock_zh_a_spot_df
 
