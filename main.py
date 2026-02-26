@@ -1,3 +1,4 @@
+#! /home/pang/project/2025/venv310/bin/python3
 import argparse
 import datetime
 import sys
@@ -173,7 +174,7 @@ def main(*args, **kwargs):
         # date = kwargs["date"]
 
         get_raw_data(date = kwargs["date"])
-        time.sleep(5)
+        time.sleep(20)
 
         get_new(date = kwargs["date"])
         time.sleep(10)
