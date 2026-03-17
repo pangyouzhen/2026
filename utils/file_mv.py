@@ -41,7 +41,7 @@ def main():
         # 将数据保存为 CSV 文件
         csv_file = f'../sentiment/weekly/{filename}.csv'
         df.to_csv(csv_file, index=False)
-        subprocess.run(f"mv ../workday_data/{filename}.xlsx ../sentiment/weekly/{filename}.xlsx", shell=True)
+        subprocess.run(f"mv ./{filename}.xlsx ../sentiment/weekly/{filename}.xlsx", shell=True)
 
     except FileNotFoundError:
         print(f"File {excel_file} not found.")

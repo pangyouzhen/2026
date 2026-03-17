@@ -1,4 +1,5 @@
 #!/data/project/2024/venv/bin/python
+import argparse
 from pathlib import Path
 
 import natsort  # 用于自然排序
@@ -6,10 +7,18 @@ import pandas as pd
 from pypinyin import (  # Import pinyin and Style for Chinese character to pinyin conversion
     Style, pinyin)
 
-p = Path('../sentiment/weekly/')
+parser = argparse.ArgumentParser()
+parser.add_argument('--items', '-i', nargs='+', help='输入多个项目，用空格分隔', type=str,default=Path('../sentiment/weekly/'))
+args = parser.parse_args()
 
 # 获取所有 Excel 文件，并按自然排序
-files = sorted(p.glob('*.xlsx'), key=lambda x: natsort.natsort_key(str(x)))
+# files = sorted(p.glob('*.xlsx'), key=lambda x: natsort.natsort_key(str(x)))
+if isinstance(args.all_file,list):
+    all_file = args.all_file
+elif isinstance(args.all_file,Path):
+    all_file = args.all_file.glob("*.xlsx")
+files = sorted(all_file, key=lambda x: natsort.natsort_key(str(x)))
+
 
 dfs = []
 for file in files:
@@ -53,8 +62,8 @@ if dfs:
     print('\n')
     print(list(merged_df.index))
     print('\n')
-    merged_df.to_excel('../workday_data/merge_all.xlsx')
-    merged_df.to_csv('../workday_data/merge_all.csv')
+    merged_df.to_excel('./merge_all.xlsx')
+    merged_df.to_csv('./merge_all.csv')
 
     print("Merged file saved as 'merge_all.xlsx'")
 else:

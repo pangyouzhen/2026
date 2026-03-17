@@ -128,4 +128,6 @@ workday_data/*
 !workday_data/.gitkeep
 utils/code.txt
 utils/code2.sel
-utils/strong.txt  
+utils/strong.txt 
+utils/*xlsx
+utils/merge_all.csv
