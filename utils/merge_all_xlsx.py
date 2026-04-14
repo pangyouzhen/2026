@@ -10,13 +10,21 @@ from pypinyin import (  # Import pinyin and Style for Chinese character to pinyi
 parser = argparse.ArgumentParser()
 parser.add_argument('--items', '-i', nargs='+', help='输入多个项目，用空格分隔', type=str,default=Path('../sentiment/weekly/'))
 args = parser.parse_args()
+p = Path('../sentiment/weekly/')
+p2 = Path("./")
+
+files_p = list(p.glob('*.xlsx'))
+files_p2 = list(p2.glob('202*.xlsx'))
+
+all_files1 = files_p + files_p2
 
 # 获取所有 Excel 文件，并按自然排序
-# files = sorted(p.glob('*.xlsx'), key=lambda x: natsort.natsort_key(str(x)))
-if isinstance(args.all_file,list):
-    all_file = args.all_file
-elif isinstance(args.all_file,Path):
-    all_file = args.all_file.glob("*.xlsx")
+all_file = sorted(all_files1, key=lambda x: natsort.natsort_key(str(x)))
+last_2week_file = all_file[-2:]
+if isinstance(all_file,list):
+    all_file = all_file
+elif isinstance(all_file,Path):
+    all_file = all_file.glob("*.xlsx")
 files = sorted(all_file, key=lambda x: natsort.natsort_key(str(x)))
 
 
