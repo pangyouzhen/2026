@@ -17,19 +17,15 @@ files_p = list(p.glob('*.xlsx'))
 files_p2 = list(p2.glob('202*.xlsx'))
 
 all_files1 = files_p + files_p2
-
 # 获取所有 Excel 文件，并按自然排序
-all_file = sorted(all_files1, key=lambda x: natsort.natsort_key(str(x)))
+all_file = sorted(all_files1, key=lambda x: natsort.natsort_key(str(x.name)))
 last_2week_file = all_file[-2:]
-if isinstance(all_file,list):
-    all_file = all_file
-elif isinstance(all_file,Path):
-    all_file = all_file.glob("*.xlsx")
-files = sorted(all_file, key=lambda x: natsort.natsort_key(str(x)))
+print(all_file)
+
 
 
 dfs = []
-for file in files:
+for file in all_file:
     df = pd.read_excel(file)
     print(file)
     if '类别' in df.columns:
@@ -40,6 +36,14 @@ for file in files:
             print(f"Warning: Duplicate indices found in {file}. Skipping this file.")
     else:
         print(f"Warning: '类别' column not found in {file}. Skipping this file.")
+
+a = []
+for f in last_2week_file:
+    df1 = pd.read_excel(f)
+    for j in df1["类别"].tolist():
+        if j not in a:
+            a.append(j)
+print(f'上2周的题材有这些{a}')
 
 # 合并数据
 if dfs:
@@ -72,6 +76,7 @@ if dfs:
     print('\n')
     merged_df.to_excel('./merge_all.xlsx')
     merged_df.to_csv('./merge_all.csv')
+    last2_file = merged_df[merged_df.index.isin(a)].to_excel("last2_file.xlsx")
 
     print("Merged file saved as 'merge_all.xlsx'")
 else:

@@ -12,7 +12,7 @@ csvs.sort()
 app = typer.Typer()
   
 @app.command()
-def get_strong(k:int=30):
+def get_strong(k:int=100):
     # K 数量
     dfs = []
     bankuai = []
@@ -28,6 +28,7 @@ def get_strong(k:int=30):
     c = Counter(all_df["名称"].tolist())
 
     res = pd.DataFrame(c.most_common(k),columns=['name','num'])
+    print(res)
     res.to_csv("strong.txt",index=False)
 
 if __name__ == "__main__":
