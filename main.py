@@ -213,6 +213,7 @@ FUNCTION_MAP = {
     # "roll_cls":get_stock_zh_a_roll_cls,
     # "cls": alerts_cls,
     "new":get_new,
+    "strong":get_strong,
 }
 
 
