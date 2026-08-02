@@ -44,7 +44,7 @@ def run(playwright: Playwright,date,img_path) -> None:
     src_list = [img.get_attribute("src") for img in page2.locator("img").all()]
 
     # 打印整个列表
-    print(src_list)
+    pprint(src_list)
 
     # 或者检查是否为空后再打印第一个
     if src_list:
@@ -55,7 +55,7 @@ def run(playwright: Playwright,date,img_path) -> None:
         url = src_list[ind]
         html = requests.get(url)
         img_name = str(date)
-        print(img_name)
+        pprint(img_name)
         with open("%s/%s_zt_analyse_%s.png" % (img_path, img_name,v), "wb") as file:
                 file.write(html.content)
         print("获取今日涨停分析成功")
