@@ -50,14 +50,15 @@ def run(playwright: Playwright,date,img_path) -> None:
     if src_list:
         print(f"第一张图是: {src_list[0]}")
     page.wait_for_timeout(10000)
-    ind_ = {2:1,1:0}
-    for ind,i in enumerate(src_list):
-        if i.startswith(f"https://image.cls.cn/images/{args.date.replace("-","")}/"):
+    ind = 0
+    for i in src_list:
+        if i.startswith(f"https://image.cls.cn/images/{args.date.replace('-','')}/"):
             html = requests.get(i)
             img_name = str(date)
             pprint(img_name)
             with open("%s/%s_zt_analyse_%s.png" % (img_path, img_name,ind), "wb") as file:
                     file.write(html.content)
+            ind +=1 
             print("获取今日涨停分析成功")
     # imgs = page.locator("img").all()
     # # .nth(2).get_attribute("src")
