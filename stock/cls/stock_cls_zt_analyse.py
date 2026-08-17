@@ -51,14 +51,14 @@ def run(playwright: Playwright,date,img_path) -> None:
         print(f"第一张图是: {src_list[0]}")
     page.wait_for_timeout(10000)
     ind_ = {2:1,1:0}
-    for ind,v in ind_.items():
-        url = src_list[ind]
-        html = requests.get(url)
-        img_name = str(date)
-        pprint(img_name)
-        with open("%s/%s_zt_analyse_%s.png" % (img_path, img_name,v), "wb") as file:
-                file.write(html.content)
-        print("获取今日涨停分析成功")
+    for ind,i in enumerate(src_list):
+        if i.startswith(f"https://image.cls.cn/images/{args.date.replace("-","")}/"):
+            html = requests.get(i)
+            img_name = str(date)
+            pprint(img_name)
+            with open("%s/%s_zt_analyse_%s.png" % (img_path, img_name,ind), "wb") as file:
+                    file.write(html.content)
+            print("获取今日涨停分析成功")
     # imgs = page.locator("img").all()
     # # .nth(2).get_attribute("src")
     # for i in imgs:
