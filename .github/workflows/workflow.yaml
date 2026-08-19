@@ -15,7 +15,7 @@ jobs:
     steps:
       - name: Display Github Actions bot username
         run: echo ${{ github.actor }} 
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4.4
         with:
           ref: ${{ github.ref }}
       - name: Set up Python
