@@ -1,0 +1,1306 @@
+import ctypes
+import ctypes.wintypes as wintypes
+import json
+import os
+import sys
+import time
+import threading
+import tkinter as tk
+from tkinter import ttk
+
+import pyperclip
+
+
+# ============================================================
+# 配置
+# ============================================================
+
+MAX_HISTORY = 1000
+
+HOTKEY_HISTORY = "ctrl+shift+v"
+
+# 鼠标拖选至少移动多少像素，才认为是在选择文字
+SELECT_MIN_DISTANCE = 4
+
+# 自动 Ctrl+C 后等待剪贴板更新
+COPY_WAIT = 0.08
+
+# 中键粘贴前等待
+PASTE_WAIT = 0.03
+
+
+# ============================================================
+# Windows API
+# ============================================================
+
+user32 = ctypes.windll.user32
+kernel32 = ctypes.windll.kernel32
+
+
+# ------------------------------------------------------------
+# SendInput
+# ------------------------------------------------------------
+
+INPUT_KEYBOARD = 1
+
+KEYEVENTF_KEYUP = 0x0002
+
+VK_CONTROL = 0x11
+VK_C = 0x43
+VK_V = 0x56
+
+
+class KEYBDINPUT(ctypes.Structure):
+    _fields_ = [
+        ("wVk", wintypes.WORD),
+        ("wScan", wintypes.WORD),
+        ("dwFlags", wintypes.DWORD),
+        ("time", wintypes.DWORD),
+        ("dwExtraInfo", ctypes.POINTER(wintypes.ULONG)),
+    ]
+
+
+class INPUT_UNION(ctypes.Union):
+    _fields_ = [
+        ("ki", KEYBDINPUT),
+    ]
+
+
+class INPUT(ctypes.Structure):
+    _anonymous_ = ("u",)
+    _fields_ = [
+        ("type", wintypes.DWORD),
+        ("u", INPUT_UNION),
+    ]
+
+
+def send_key(vk):
+    """
+    模拟按下一个键再释放。
+    """
+
+    inputs = (INPUT * 2)()
+
+    inputs[0].type = INPUT_KEYBOARD
+    inputs[0].ki = KEYBDINPUT(
+        vk,
+        0,
+        0,
+        0,
+        None,
+    )
+
+    inputs[1].type = INPUT_KEYBOARD
+    inputs[1].ki = KEYBDINPUT(
+        vk,
+        0,
+        KEYEVENTF_KEYUP,
+        0,
+        None,
+    )
+
+    user32.SendInput(
+        2,
+        ctypes.byref(inputs),
+        ctypes.sizeof(INPUT),
+    )
+
+
+def hotkey_ctrl(vk):
+    """
+    Ctrl + key
+    """
+
+    inputs = (INPUT * 4)()
+
+    # Ctrl down
+    inputs[0].type = INPUT_KEYBOARD
+    inputs[0].ki = KEYBDINPUT(
+        VK_CONTROL,
+        0,
+        0,
+        0,
+        None,
+    )
+
+    # key down
+    inputs[1].type = INPUT_KEYBOARD
+    inputs[1].ki = KEYBDINPUT(
+        vk,
+        0,
+        0,
+        0,
+        None,
+    )
+
+    # key up
+    inputs[2].type = INPUT_KEYBOARD
+    inputs[2].ki = KEYBDINPUT(
+        vk,
+        0,
+        KEYEVENTF_KEYUP,
+        0,
+        None,
+    )
+
+    # Ctrl up
+    inputs[3].type = INPUT_KEYBOARD
+    inputs[3].ki = KEYBDINPUT(
+        VK_CONTROL,
+        0,
+        KEYEVENTF_KEYUP,
+        0,
+        None,
+    )
+
+    user32.SendInput(
+        4,
+        ctypes.byref(inputs),
+        ctypes.sizeof(INPUT),
+    )
+
+
+def copy_current_selection():
+    """
+    模拟 Ctrl+C
+    """
+
+    hotkey_ctrl(VK_C)
+
+
+def paste_current():
+    """
+    模拟 Ctrl+V
+    """
+
+    hotkey_ctrl(VK_V)
+
+
+# ============================================================
+# 数据库：JSON
+# ============================================================
+
+APP_DIR = os.path.join(
+    os.environ.get("APPDATA", os.path.expanduser("~")),
+    "PythonClipboard",
+)
+
+HISTORY_FILE = os.path.join(
+    APP_DIR,
+    "clipboard.json",
+)
+
+
+class HistoryDB:
+
+    def __init__(self):
+
+        os.makedirs(
+            APP_DIR,
+            exist_ok=True,
+        )
+
+        self.lock = threading.Lock()
+
+        self.items = []
+
+        self.load()
+
+    # --------------------------------------------------------
+
+    def load(self):
+
+        try:
+
+            if not os.path.exists(HISTORY_FILE):
+                return
+
+            with open(
+                HISTORY_FILE,
+                "r",
+                encoding="utf-8",
+            ) as f:
+
+                data = json.load(f)
+
+            if isinstance(data, list):
+
+                self.items = data
+
+        except Exception as e:
+
+            print(
+                "读取历史失败:",
+                e,
+            )
+
+            self.items = []
+
+    # --------------------------------------------------------
+
+    def save(self):
+
+        try:
+
+            tmp_file = HISTORY_FILE + ".tmp"
+
+            with open(
+                tmp_file,
+                "w",
+                encoding="utf-8",
+            ) as f:
+
+                json.dump(
+                    self.items,
+                    f,
+                    ensure_ascii=False,
+                    indent=2,
+                )
+
+            os.replace(
+                tmp_file,
+                HISTORY_FILE,
+            )
+
+        except Exception as e:
+
+            print(
+                "保存历史失败:",
+                e,
+            )
+
+    # --------------------------------------------------------
+
+    def add(self, text):
+
+        if not text:
+            return
+
+        text = text.strip("\x00")
+
+        if not text:
+            return
+
+        with self.lock:
+
+            # 如果和最近一条一样，不重复保存
+            if self.items:
+
+                if self.items[0]["text"] == text:
+
+                    self.items[0]["time"] = time.time()
+
+                    self.save()
+
+                    return
+
+            # 如果历史里面已经存在
+            existing = None
+
+            for item in self.items:
+
+                if item["text"] == text:
+
+                    existing = item
+                    break
+
+            if existing:
+
+                self.items.remove(existing)
+
+                existing["time"] = time.time()
+
+                self.items.insert(
+                    0,
+                    existing,
+                )
+
+            else:
+
+                self.items.insert(
+                    0,
+                    {
+                        "text": text,
+                        "favorite": False,
+                        "time": time.time(),
+                    },
+                )
+
+            # 删除最老的非收藏内容
+            while len(self.items) > MAX_HISTORY:
+
+                index = None
+
+                for i in range(
+                    len(self.items) - 1,
+                    -1,
+                    -1,
+                ):
+
+                    if not self.items[i].get(
+                        "favorite",
+                        False,
+                    ):
+
+                        index = i
+                        break
+
+                if index is None:
+                    break
+
+                self.items.pop(index)
+
+            self.save()
+
+    # --------------------------------------------------------
+
+    def delete(self, text):
+
+        with self.lock:
+
+            self.items = [
+                x
+                for x in self.items
+                if x["text"] != text
+            ]
+
+            self.save()
+
+    # --------------------------------------------------------
+
+    def toggle_favorite(self, text):
+
+        with self.lock:
+
+            for item in self.items:
+
+                if item["text"] == text:
+
+                    item["favorite"] = not item.get(
+                        "favorite",
+                        False,
+                    )
+
+                    break
+
+            self.save()
+
+    # --------------------------------------------------------
+
+    def search(self, keyword):
+
+        keyword = keyword.lower()
+
+        with self.lock:
+
+            result = []
+
+            for item in self.items:
+
+                text = item["text"]
+
+                if (
+                    not keyword
+                    or keyword in text.lower()
+                ):
+
+                    result.append(item)
+
+            return result
+
+
+# ============================================================
+# 剪贴板监听
+# ============================================================
+
+class ClipboardMonitor(threading.Thread):
+
+    def __init__(self, db):
+
+        super().__init__(
+            daemon=True,
+        )
+
+        self.db = db
+
+        self.last_text = ""
+
+        self.ignore_until = 0
+
+    # --------------------------------------------------------
+
+    def ignore(self, seconds):
+
+        self.ignore_until = (
+            time.time() + seconds
+        )
+
+    # --------------------------------------------------------
+
+    def run(self):
+
+        while True:
+
+            try:
+
+                if time.time() < self.ignore_until:
+
+                    time.sleep(0.05)
+
+                    continue
+
+                text = pyperclip.paste()
+
+                if (
+                    text
+                    and text != self.last_text
+                ):
+
+                    self.last_text = text
+
+                    self.db.add(text)
+
+            except Exception as e:
+
+                print(
+                    "Clipboard monitor:",
+                    e,
+                )
+
+            time.sleep(0.15)
+
+
+# ============================================================
+# 鼠标 Hook
+# ============================================================
+
+WH_MOUSE_LL = 14
+
+WM_LBUTTONDOWN = 0x0201
+WM_LBUTTONUP = 0x0202
+WM_MBUTTONDOWN = 0x0207
+
+HC_ACTION = 0
+
+
+class POINT(ctypes.Structure):
+    _fields_ = [
+        ("x", wintypes.LONG),
+        ("y", wintypes.LONG),
+    ]
+
+
+class MSLLHOOKSTRUCT(ctypes.Structure):
+    _fields_ = [
+        ("pt", POINT),
+        ("mouseData", wintypes.DWORD),
+        ("flags", wintypes.DWORD),
+        ("time", wintypes.DWORD),
+        ("dwExtraInfo", wintypes.ULONG_PTR),
+    ]
+
+
+LowLevelMouseProc = ctypes.WINFUNCTYPE(
+    wintypes.LRESULT,
+    ctypes.c_int,
+    wintypes.WPARAM,
+    wintypes.LPARAM,
+)
+
+
+class MouseHook:
+
+    def __init__(
+        self,
+        clipboard_monitor,
+    ):
+
+        self.clipboard_monitor = (
+            clipboard_monitor
+        )
+
+        self.dragging = False
+
+        self.start_x = 0
+        self.start_y = 0
+
+        self.moved = False
+
+        self.last_middle = 0
+
+        self.callback = LowLevelMouseProc(
+            self.callback_func
+        )
+
+        self.hook = None
+
+    # --------------------------------------------------------
+
+    def callback_func(
+        self,
+        nCode,
+        wParam,
+        lParam,
+    ):
+
+        if nCode == HC_ACTION:
+
+            info = ctypes.cast(
+                lParam,
+                ctypes.POINTER(
+                    MSLLHOOKSTRUCT
+                ),
+            ).contents
+
+            x = info.pt.x
+            y = info.pt.y
+
+            # --------------------------------------------
+            # 左键按下
+            # --------------------------------------------
+
+            if wParam == WM_LBUTTONDOWN:
+
+                self.dragging = True
+
+                self.moved = False
+
+                self.start_x = x
+                self.start_y = y
+
+            # --------------------------------------------
+            # 左键释放
+            # --------------------------------------------
+
+            elif wParam == WM_LBUTTONUP:
+
+                if self.dragging:
+
+                    dx = abs(
+                        x - self.start_x
+                    )
+
+                    dy = abs(
+                        y - self.start_y
+                    )
+
+                    if (
+                        dx >= SELECT_MIN_DISTANCE
+                        or dy >= SELECT_MIN_DISTANCE
+                    ):
+
+                        self.moved = True
+
+                if self.moved:
+
+                    # 等当前程序完成选择
+                    threading.Timer(
+                        0.03,
+                        self.auto_copy,
+                    ).start()
+
+                self.dragging = False
+
+            # --------------------------------------------
+            # 中键
+            # --------------------------------------------
+
+            elif wParam == WM_MBUTTONDOWN:
+
+                now = time.time()
+
+                # 防止重复触发
+                if (
+                    now - self.last_middle
+                    > 0.15
+                ):
+
+                    self.last_middle = now
+
+                    threading.Thread(
+                        target=self.middle_paste,
+                        daemon=True,
+                    ).start()
+
+        return user32.CallNextHookEx(
+            self.hook,
+            nCode,
+            wParam,
+            lParam,
+        )
+
+    # --------------------------------------------------------
+
+    def auto_copy(self):
+
+        self.clipboard_monitor.ignore(
+            0.3
+        )
+
+        try:
+
+            copy_current_selection()
+
+            time.sleep(
+                COPY_WAIT
+            )
+
+            text = pyperclip.paste()
+
+            if text:
+
+                self.clipboard_monitor.last_text = text
+
+                self.clipboard_monitor.db.add(
+                    text
+                )
+
+        except Exception as e:
+
+            print(
+                "Auto copy:",
+                e,
+            )
+
+    # --------------------------------------------------------
+
+    def middle_paste(self):
+
+        try:
+
+            time.sleep(
+                PASTE_WAIT
+            )
+
+            paste_current()
+
+        except Exception as e:
+
+            print(
+                "Middle paste:",
+                e,
+            )
+
+    # --------------------------------------------------------
+
+    def run(self):
+
+        self.hook = user32.SetWindowsHookExW(
+            WH_MOUSE_LL,
+            self.callback,
+            kernel32.GetModuleHandleW(None),
+            0,
+        )
+
+        if not self.hook:
+
+            raise ctypes.WinError()
+
+        msg = wintypes.MSG()
+
+        while user32.GetMessageW(
+            ctypes.byref(msg),
+            None,
+            0,
+            0,
+        ):
+
+            user32.TranslateMessage(
+                ctypes.byref(msg)
+            )
+
+            user32.DispatchMessageW(
+                ctypes.byref(msg)
+            )
+
+        user32.UnhookWindowsHookEx(
+            self.hook
+        )
+
+
+# ============================================================
+# 全局快捷键
+# ============================================================
+
+WH_KEYBOARD_LL = 13
+
+WM_KEYDOWN = 0x0100
+WM_KEYUP = 0x0101
+
+VK_SHIFT = 0x10
+VK_V = 0x56
+VK_F = 0x46
+VK_DELETE = 0x2E
+VK_ESCAPE = 0x1B
+VK_UP = 0x26
+VK_DOWN = 0x28
+VK_RETURN = 0x0D
+
+
+class KBDLLHOOKSTRUCT(
+    ctypes.Structure
+):
+
+    _fields_ = [
+        ("vkCode", wintypes.DWORD),
+        ("scanCode", wintypes.DWORD),
+        ("flags", wintypes.DWORD),
+        ("time", wintypes.DWORD),
+        ("dwExtraInfo", wintypes.ULONG_PTR),
+    ]
+
+
+LowLevelKeyboardProc = ctypes.WINFUNCTYPE(
+    wintypes.LRESULT,
+    ctypes.c_int,
+    wintypes.WPARAM,
+    wintypes.LPARAM,
+)
+
+
+class KeyboardHook:
+
+    def __init__(self, app):
+
+        self.app = app
+
+        self.ctrl = False
+        self.shift = False
+
+        self.callback = LowLevelKeyboardProc(
+            self.callback_func
+        )
+
+        self.hook = None
+
+    # --------------------------------------------------------
+
+    def callback_func(
+        self,
+        nCode,
+        wParam,
+        lParam,
+    ):
+
+        if nCode == HC_ACTION:
+
+            info = ctypes.cast(
+                lParam,
+                ctypes.POINTER(
+                    KBDLLHOOKSTRUCT
+                ),
+            ).contents
+
+            vk = info.vkCode
+
+            if wParam == WM_KEYDOWN:
+
+                if vk == VK_CONTROL:
+
+                    self.ctrl = True
+
+                elif vk == VK_SHIFT:
+
+                    self.shift = True
+
+                # Ctrl + Shift + V
+                elif (
+                    vk == VK_V
+                    and self.ctrl
+                    and self.shift
+                ):
+
+                    self.app.show_window()
+
+                    return 1
+
+            elif wParam == WM_KEYUP:
+
+                if vk == VK_CONTROL:
+
+                    self.ctrl = False
+
+                elif vk == VK_SHIFT:
+
+                    self.shift = False
+
+        return user32.CallNextHookEx(
+            self.hook,
+            nCode,
+            wParam,
+            lParam,
+        )
+
+    # --------------------------------------------------------
+
+    def run(self):
+
+        self.hook = user32.SetWindowsHookExW(
+            WH_KEYBOARD_LL,
+            self.callback,
+            kernel32.GetModuleHandleW(None),
+            0,
+        )
+
+        if not self.hook:
+
+            raise ctypes.WinError()
+
+        msg = wintypes.MSG()
+
+        while user32.GetMessageW(
+            ctypes.byref(msg),
+            None,
+            0,
+            0,
+        ):
+
+            user32.TranslateMessage(
+                ctypes.byref(msg)
+            )
+
+            user32.DispatchMessageW(
+                ctypes.byref(msg)
+            )
+
+        user32.UnhookWindowsHookEx(
+            self.hook
+        )
+
+
+# ============================================================
+# GUI
+# ============================================================
+
+class ClipboardWindow:
+
+    def __init__(
+        self,
+        root,
+        db,
+        monitor,
+    ):
+
+        self.root = root
+
+        self.db = db
+
+        self.monitor = monitor
+
+        self.visible = False
+
+        self.items = []
+
+        # --------------------------------------------
+        # Window
+        # --------------------------------------------
+
+        self.window = tk.Toplevel(
+            root
+        )
+
+        self.window.title(
+            "Clipboard History"
+        )
+
+        self.window.geometry(
+            "760x500"
+        )
+
+        self.window.withdraw()
+
+        self.window.protocol(
+            "WM_DELETE_WINDOW",
+            self.hide,
+        )
+
+        # --------------------------------------------
+        # Search
+        # --------------------------------------------
+
+        self.search_var = tk.StringVar()
+
+        self.search = ttk.Entry(
+            self.window,
+            textvariable=self.search_var,
+            font=("Microsoft YaHei", 12),
+        )
+
+        self.search.pack(
+            fill="x",
+            padx=10,
+            pady=10,
+        )
+
+        # --------------------------------------------
+        # List
+        # --------------------------------------------
+
+        self.listbox = tk.Listbox(
+            self.window,
+            font=("Microsoft YaHei", 11),
+            activestyle="none",
+        )
+
+        self.listbox.pack(
+            fill="both",
+            expand=True,
+            padx=10,
+            pady=(0, 10),
+        )
+
+        # --------------------------------------------
+        # Events
+        # --------------------------------------------
+
+        self.search_var.trace_add(
+            "write",
+            lambda *args:
+            self.refresh(),
+        )
+
+        self.listbox.bind(
+            "<Return>",
+            self.select,
+        )
+
+        self.listbox.bind(
+            "<Double-Button-1>",
+            self.select,
+        )
+
+        self.listbox.bind(
+            "<Delete>",
+            self.delete,
+        )
+
+        self.listbox.bind(
+            "<F>",
+            self.favorite,
+        )
+
+        self.listbox.bind(
+            "<f>",
+            self.favorite,
+        )
+
+        self.search.bind(
+            "<Down>",
+            self.focus_list,
+        )
+
+        self.search.bind(
+            "<Return>",
+            self.select,
+        )
+
+        self.search.bind(
+            "<Escape>",
+            lambda e: self.hide(),
+        )
+
+        self.listbox.bind(
+            "<Escape>",
+            lambda e: self.hide(),
+        )
+
+    # --------------------------------------------------------
+
+    def show(self):
+
+        self.visible = True
+
+        self.search_var.set("")
+
+        self.refresh()
+
+        self.window.deiconify()
+
+        self.window.lift()
+
+        self.window.attributes(
+            "-topmost",
+            True,
+        )
+
+        self.window.after(
+            100,
+            lambda:
+            self.window.attributes(
+                "-topmost",
+                False,
+            ),
+        )
+
+        self.search.focus_set()
+
+    # --------------------------------------------------------
+
+    def hide(self):
+
+        self.visible = False
+
+        self.window.withdraw()
+
+    # --------------------------------------------------------
+
+    def refresh(self):
+
+        keyword = (
+            self.search_var.get()
+        )
+
+        self.items = self.db.search(
+            keyword
+        )
+
+        self.listbox.delete(
+            0,
+            tk.END,
+        )
+
+        for item in self.items:
+
+            text = item["text"]
+
+            favorite = item.get(
+                "favorite",
+                False,
+            )
+
+            if favorite:
+
+                prefix = "★ "
+
+            else:
+
+                prefix = "  "
+
+            text = text.replace(
+                "\r",
+                "",
+            )
+
+            text = text.replace(
+                "\n",
+                " ↵ ",
+            )
+
+            if len(text) > 160:
+
+                text = (
+                    text[:160]
+                    + "..."
+                )
+
+            self.listbox.insert(
+                tk.END,
+                prefix + text,
+            )
+
+        if self.items:
+
+            self.listbox.selection_set(
+                0
+            )
+
+            self.listbox.activate(
+                0
+            )
+
+    # --------------------------------------------------------
+
+    def focus_list(self, event=None):
+
+        self.listbox.focus_set()
+
+        return "break"
+
+    # --------------------------------------------------------
+
+    def current_item(self):
+
+        selection = (
+            self.listbox.curselection()
+        )
+
+        if not selection:
+
+            return None
+
+        index = selection[0]
+
+        if index >= len(self.items):
+
+            return None
+
+        return self.items[index]
+
+    # --------------------------------------------------------
+
+    def select(self, event=None):
+
+        item = self.current_item()
+
+        if not item:
+
+            return "break"
+
+        text = item["text"]
+
+        self.monitor.ignore(
+            1.0
+        )
+
+        try:
+
+            pyperclip.copy(
+                text
+            )
+
+            self.monitor.last_text = text
+
+            self.hide()
+
+            # 给目标窗口一点时间恢复焦点
+            self.root.after(
+                80,
+                paste_current,
+            )
+
+        except Exception as e:
+
+            print(
+                "Paste history:",
+                e,
+            )
+
+        return "break"
+
+    # --------------------------------------------------------
+
+    def delete(self, event=None):
+
+        item = self.current_item()
+
+        if not item:
+
+            return "break"
+
+        self.db.delete(
+            item["text"]
+        )
+
+        self.refresh()
+
+        return "break"
+
+    # --------------------------------------------------------
+
+    def favorite(self, event=None):
+
+        item = self.current_item()
+
+        if not item:
+
+            return "break"
+
+        self.db.toggle_favorite(
+            item["text"]
+        )
+
+        self.refresh()
+
+        return "break"
+
+
+# ============================================================
+# 主程序
+# ============================================================
+
+class ClipboardApp:
+
+    def __init__(self):
+
+        self.db = HistoryDB()
+
+        # 隐藏 root
+        self.root = tk.Tk()
+
+        self.root.withdraw()
+
+        # 剪贴板监听
+        self.monitor = ClipboardMonitor(
+            self.db
+        )
+
+        self.monitor.start()
+
+        # GUI
+        self.window = ClipboardWindow(
+            self.root,
+            self.db,
+            self.monitor,
+        )
+
+        # 鼠标 Hook
+        self.mouse_hook = MouseHook(
+            self.monitor
+        )
+
+        threading.Thread(
+            target=self.mouse_hook.run,
+            daemon=True,
+        ).start()
+
+        # 键盘 Hook
+        self.keyboard_hook = KeyboardHook(
+            self
+        )
+
+        threading.Thread(
+            target=self.keyboard_hook.run,
+            daemon=True,
+        ).start()
+
+    # --------------------------------------------------------
+
+    def show_window(self):
+
+        self.root.after(
+            0,
+            self.window.show,
+        )
+
+    # --------------------------------------------------------
+
+    def run(self):
+
+        self.root.mainloop()
+
+
+# ============================================================
+# 启动
+# ============================================================
+
+if __name__ == "__main__":
+
+    print(
+        "Python Clipboard Manager started."
+    )
+
+    print(
+        "Ctrl+Shift+V : Clipboard History"
+    )
+
+    print(
+        "Mouse drag   : Auto Copy"
+    )
+
+    print(
+        "Middle click : Paste"
+    )
+
+    app = ClipboardApp()
+
+    app.run()
