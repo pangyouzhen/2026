@@ -38,7 +38,7 @@ def run(playwright: Playwright,date,img_path) -> None:
 
         # 获取所有 src
     with page.expect_popup() as page2_info:
-        page.get_by_role("link", name="【%s涨停分析】财联社%s电，今日全市场共"%(date_result,date_result)).click()
+        page.get_by_role("link", name="【%s涨停分析】财联社%s电，今日全市场共"%(date_result,date_result)).first.click()
     page2 = page2_info.value
     page2.wait_for_timeout(10000)  # 强制等待 3 秒
     src_list = [img.get_attribute("src") for img in page2.locator("img").all()]
